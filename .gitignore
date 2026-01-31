@@ -1,0 +1,8 @@
+/bin/
+/dist/
+/coverage.out
+/coverage.txt
+*.test
+*.prof
+/out/
+.DS_Store
