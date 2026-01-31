@@ -1,0 +1,67 @@
+# promtool unit test for the generated rules: `promtool test rules examples/prometheus/slo-rules.test.yaml`
+# (run by `make promtool-check` when promtool is installed).
+#
+# checkout serves 1,000 requests a minute. All succeed, fast, for two hours;
+# then every request fails. The workbook's arithmetic (docs/ALERT_MATH.md)
+# says a 100% outage against a 99.9% SLO trips the 1h/5m page after
+# 1h * 14.4 * 0.001 = 51.8s, and the 1d/2h ticket within minutes once the
+# history is only two hours long.
+rule_files:
+  - slo-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{job="checkout", http_response_status_code="200"}'
+        values: '0+1000x121 121000+0x59'
+      - series: 'http_server_request_duration_seconds_bucket{job="checkout", http_response_status_code="200", le="0.25"}'
+        values: '0+1000x121 121000+0x59'
+      - series: 'http_server_request_duration_seconds_count{job="checkout", http_response_status_code="500"}'
+        values: '0+0x121 1000+1000x59'
+
+    promql_expr_test:
+      - expr: slo:error_budget_remaining:ratio{slo="checkout-availability"}
+        eval_time: 120m
+        exp_samples:
+          - labels: 'slo:error_budget_remaining:ratio{service="checkout", slo="checkout-availability", team="payments"}'
+            value: 1
+      - expr: slo:error_budget_policy_state{slo="checkout-availability"}
+        eval_time: 120m
+        exp_samples:
+          - labels: 'slo:error_budget_policy_state{service="checkout", slo="checkout-availability", state="healthy", team="payments"}'
+            value: 1
+      - expr: slo:error_budget_policy_state{slo="checkout-availability"}
+        eval_time: 125m
+        exp_samples:
+          - labels: 'slo:error_budget_policy_state{service="checkout", slo="checkout-availability", state="exhausted", team="payments"}'
+            value: 1
+
+    alert_rule_test:
+      - eval_time: 120m
+        alertname: ErrorBudgetBurn
+        exp_alerts: []
+      - eval_time: 125m
+        alertname: ErrorBudgetBurn
+        exp_alerts:
+          - exp_labels:
+              alertname: ErrorBudgetBurn
+              service: checkout
+              severity: page
+              slo: checkout-availability
+              team: payments
+            exp_annotations:
+              description: 'SLO checkout-availability of service checkout (objective 99.9% over 30d) exceeds the page burn-rate thresholds: 1h/5m at 14.4x or 6h/30m at 6x.'
+              runbook_url: https://runbooks.example.internal/checkout/availability
+              summary: Checkout availability is burning its error budget too fast (page)
+          - exp_labels:
+              alertname: ErrorBudgetBurn
+              service: checkout
+              severity: ticket
+              slo: checkout-availability
+              team: payments
+            exp_annotations:
+              description: 'SLO checkout-availability of service checkout (objective 99.9% over 30d) exceeds the ticket burn-rate thresholds: 1d/2h at 3x or 3d/6h at 1x.'
+              runbook_url: https://runbooks.example.internal/checkout/availability
+              summary: Checkout availability is burning its error budget too fast (ticket)
