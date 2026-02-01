@@ -1,0 +1,58 @@
+# Two SLOs for the synthetic "checkout" service. The selectors use the names
+# the Prometheus OTLP receiver produces for the OpenTelemetry semantic
+# convention metric http.server.request.duration (unit "s", histogram):
+#   http_server_request_duration_seconds_{bucket,count,sum}
+# and the job label it derives from the service.name resource attribute.
+apiVersion: burnrate/v1
+kind: SLO
+metadata:
+  name: checkout-availability
+  displayName: Checkout availability
+  labels:
+    team: payments
+spec:
+  service: checkout
+  description: Share of checkout API requests that do not fail with a 5xx status.
+  budgetingMethod: Occurrences
+  timeWindow:
+    - duration: 30d
+      isRolling: true
+  objectives:
+    - target: 0.999
+  indicator:
+    ratio:
+      total: http_server_request_duration_seconds_count{job="checkout"}
+      bad: http_server_request_duration_seconds_count{job="checkout", http_response_status_code=~"5.."}
+  alerting:
+    annotations:
+      runbook_url: https://runbooks.example.internal/checkout/availability
+---
+apiVersion: burnrate/v1
+kind: SLO
+metadata:
+  name: checkout-latency
+  displayName: Checkout latency under 250ms
+  labels:
+    team: payments
+spec:
+  service: checkout
+  description: Share of successful checkout API requests served within 250 ms.
+  budgetingMethod: Occurrences
+  timeWindow:
+    - duration: 30d
+      isRolling: true
+  objectives:
+    - target: 0.99
+  indicator:
+    latency:
+      histogram: http_server_request_duration_seconds{job="checkout", http_response_status_code!~"5.."}
+      threshold: 0.25
+  budgetPolicy:
+    states:
+      - name: healthy
+        minRemaining: 0.4
+        action: Release at normal cadence.
+      - name: at-risk
+        minRemaining: 0
+        action: Performance review required before each release.
+    exhaustedAction: Freeze feature releases; latency fixes only.

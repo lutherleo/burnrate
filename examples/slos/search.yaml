@@ -1,0 +1,32 @@
+# A custom alerting policy: a 7-day SLO with explicit burn rates instead of the
+# workbook defaults, and a good-events ratio instead of bad events.
+apiVersion: burnrate/v1
+kind: SLO
+metadata:
+  name: search-availability
+  displayName: Search availability
+spec:
+  service: search
+  description: Share of search requests answered without a server error.
+  timeWindow:
+    - duration: 7d
+      isRolling: true
+  objectives:
+    - target: 0.995
+  indicator:
+    ratio:
+      total: http_server_request_duration_seconds_count{job="search"}
+      good: http_server_request_duration_seconds_count{job="search", http_response_status_code!~"5.."}
+  alerting:
+    name: SearchBudgetBurn
+    labels:
+      team: discovery
+    windows:
+      - severity: page
+        longWindow: 1h
+        shortWindow: 5m
+        burnRate: 10
+      - severity: ticket
+        longWindow: 1d
+        shortWindow: 2h
+        burnRate: 2
